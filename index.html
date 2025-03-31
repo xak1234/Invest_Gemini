@@ -1,162 +1,226 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Investment Tracker</title>
-    <style>
-        body {
-            font-family: monospace;
-            background-color: #000;
-            color: #00ffff;
-            margin: 20px;
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+
+// Rotate between multiple API keys to avoid rate limits
+const CRYPTOCOMPARE_API_KEYS = [
+  '8089fc5783ee63d89c9c3e6d00cd7b19f2ecd53e3c370aa99c846361f6286cea',
+  'f7b87a4d88f302ed0e053aa45b4d21c5800f80f86f3d2f896027b03c3289cd19',
+  '1c716ffa5d243c46b7ddf5d84bb9c11d5c103e9b94e65e6326c867dd6a613029'
+];
+
+let currentKeyIndex = 0;
+const getNextApiKey = () => {
+  currentKeyIndex = (currentKeyIndex + 1) % CRYPTOCOMPARE_API_KEYS.length;
+  return CRYPTOCOMPARE_API_KEYS[currentKeyIndex];
+};
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+};
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = 3, backoff = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      
+      if (response.status === 429) { // Rate limit hit
+        const retryAfter = response.headers.get('Retry-After');
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : backoff * Math.pow(2, i);
+        console.log(`Rate limited. Waiting ${waitTime}ms before retry ${i + 1}/${retries}`);
+        await sleep(waitTime);
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      const waitTime = backoff * Math.pow(2, i);
+      console.log(`Request failed. Waiting ${waitTime}ms before retry ${i + 1}/${retries}`);
+      await sleep(waitTime);
+    }
+  }
+  throw new Error(`Failed after ${retries} retries`);
+}
+
+async function fetchCryptoComparePrices(symbols: string[]) {
+  let lastError;
+  
+  // Try each API key
+  for (let keyAttempt = 0; keyAttempt < CRYPTOCOMPARE_API_KEYS.length; keyAttempt++) {
+    try {
+      const apiKey = getNextApiKey();
+      const url = `https://min-api.cryptocompare.com/data/pricemulti?fsyms=${symbols.join(',')}&tsyms=USD&api_key=${apiKey}`;
+      console.log('Fetching CryptoCompare prices:', url.replace(apiKey, '[HIDDEN]'));
+
+      const response = await fetchWithRetry(url, {
+        headers: {
+          'Accept': 'application/json'
         }
-        h1, h2 {
-            color: #00ffff;
-            text-align: center;
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('CryptoCompare error response:', {
+          status: response.status,
+          errorText
+        });
+        
+        // If rate limited, try next key
+        if (response.status === 429) {
+          lastError = new Error(`Rate limit reached for API key ${keyAttempt + 1}`);
+          continue;
         }
-        .table-container {
-            display: flex;
-            justify-content: space-around;
-        }
-        .portfolio-table {
-            border: 2px solid #00ffff;
-            padding: 20px;
-            border-radius: 10px;
-            width: 45%;
-        }
-        .portfolio-table h2 {
-            text-align: left;
-            margin-bottom: 10px;
-        }
-        .total-value {
-            font-size: 1.5em;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .coin-price {
-            margin-bottom: 5px;
-        }
-        .gain-loss {
-            margin-top: 10px;
-            font-weight: bold;
-            text-align: center;
-        }
-        .green {
-            color: #00ff00;
-        }
-        .red {
-            color: #ff0000;
-        }
-        .total-gain{
-            text-align: center;
-            margin-top: 10px;
-        }
-    </style>
-</head>
-<body>
-    <h1>Investment Tracker</h1>
+        
+        throw new Error(`CryptoCompare API error: ${response.status} - ${errorText}`);
+      }
 
-    <div class="table-container">
-        <div class="portfolio-table">
-            <h2>Stablecoin Portfolio</h2>
-            <div class="total-value" id="stablecoinTotal"></div>
-            <div class="coin-price" id="usdePrice">USDE Price: <span id="usdeValue"></span></div>
-            <div class="coin-price" id="raiPrice">RAI Price: <span id="raiValue"></span></div>
-            <div class="coin-price" id="fraxPrice">FRAX Price: <span id="fraxValue"></span></div>
-            <div class="coin-price" id="alusdPrice">ALUSD Price: <span id="alusdValue"></span></div>
-            <div class="coin-price" id="lusdPrice">LUSD Price: <span id="lusdValue"></span></div>
-            <div class="gain-loss" id="stablecoinGain"></div>
-            <div class="total-gain" id="stablecoinTotalGain"></div>
-        </div>
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const responseText = await response.text();
+        console.error('Invalid content type from CryptoCompare:', contentType, 'Response:', responseText);
+        throw new Error(`Invalid response format from CryptoCompare API. Content-Type: ${contentType}`);
+      }
 
-        <div class="portfolio-table">
-            <h2>Heaven's Vault Portfolio</h2>
-            <div class="total-value" id="heavensVaultTotal"></div>
-            <div class="coin-price" id="ethenaPrice">ETHENA Price: <span id="ethenaValue"></span></div>
-            <div class="coin-price" id="pendlePrice">PENDLE Price: <span id="pendleValue"></span></div>
-            <div class="coin-price" id="gmxPrice">GMX Price: <span id="gmxValue"></span></div>
-            <div class="coin-price" id="litPrice">LIT Price: <span id="litValue"></span></div>
-            <div class="coin-price" id="methPrice">METH Price: <span id="methValue"></span></div>
-            <div class="gain-loss" id="heavensVaultGain"></div>
-            <div class="total-gain" id="heavensVaultTotalGain"></div>
-        </div>
-    </div>
+      let data;
+      try {
+        const rawResponse = await response.text();
+        console.log('Raw CryptoCompare response:', rawResponse);
+        data = JSON.parse(rawResponse);
+      } catch (error) {
+        console.error('Failed to parse CryptoCompare response:', error);
+        throw new Error('Invalid JSON response from CryptoCompare API');
+      }
 
-    <script>
-        const stablecoinCoins = ['usde', 'rai', 'frax', 'alusd', 'lusd'];
-        const heavensVaultCoins = ['ethena', 'pendle', 'gmx', 'lit', 'meth'];
-        const initialInvestment = 5000;
-        let coinPrices = {};
-        let initialCoinQuantities = {};
+      if (!data || typeof data !== 'object') {
+        console.error('Invalid data structure from CryptoCompare:', data);
+        throw new Error('Invalid data structure received from CryptoCompare API');
+      }
 
-        async function fetchCoinPrices() {
-            try {
-                const coinIds = [...stablecoinCoins, ...heavensVaultCoins];
-                const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(',')}&vs_currencies=gbp`);
-                const data = await response.json();
-                coinPrices = data;
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (keyAttempt < CRYPTOCOMPARE_API_KEYS.length - 1) {
+        console.log(`Attempt with API key ${keyAttempt + 1} failed, trying next key`);
+        continue;
+      }
+      throw error;
+    }
+  }
+  
+  throw lastError || new Error('All API keys failed');
+}
 
-                if (Object.keys(initialCoinQuantities).length === 0) {
-                    calculateInitialQuantities();
-                }
+async function fetchCoinGeckoPrices(coinIds: string[]) {
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(',')}&vs_currencies=usd`;
+    console.log('Fetching CoinGecko prices:', url);
 
-                updatePortfolios();
-            } catch (error) {
-                console.error('Error fetching coin prices:', error);
-            }
-        }
+    const response = await fetchWithRetry(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
 
-        function calculateInitialQuantities() {
-            [stablecoinCoins, heavensVaultCoins].forEach(coins => {
-                coins.forEach(coinId => {
-                    if (coinPrices[coinId] && coinPrices[coinId].gbp) {
-                        initialCoinQuantities[coinId] = initialInvestment / coins.length / coinPrices[coinId].gbp;
-                    }
-                });
-            });
-        }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('CoinGecko error response:', {
+        status: response.status,
+        errorText
+      });
+      throw new Error(`CoinGecko API error: ${response.status} - ${errorText}`);
+    }
 
-        function updatePortfolios() {
-            updatePortfolio('stablecoin', stablecoinCoins, 'stablecoinTotal', 'stablecoinGain', 'stablecoinTotalGain');
-            updatePortfolio('heavensVault', heavensVaultCoins, 'heavensVaultTotal', 'heavensVaultGain', 'heavensVaultTotalGain');
-        }
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      const responseText = await response.text();
+      console.error('Invalid content type from CoinGecko:', contentType, 'Response:', responseText);
+      throw new Error(`Invalid response format from CoinGecko API. Content-Type: ${contentType}`);
+    }
 
-        function updatePortfolio(portfolioName, portfolioCoins, totalElementId, gainElementId, totalGainElementId) {
-            let currentPortfolioValue = 0;
+    let data;
+    try {
+      const rawResponse = await response.text();
+      console.log('Raw CoinGecko response:', rawResponse);
+      data = JSON.parse(rawResponse);
+    } catch (error) {
+      console.error('Failed to parse CoinGecko response:', error);
+      throw new Error('Invalid JSON response from CoinGecko API');
+    }
 
-            portfolioCoins.forEach(coinId => {
-                const priceElementId = `${coinId}Value`;
-                const priceElement = document.getElementById(priceElementId);
+    if (!data || typeof data !== 'object') {
+      console.error('Invalid data structure from CoinGecko:', data);
+      throw new Error('Invalid data structure received from CoinGecko API');
+    }
 
-                if (coinPrices[coinId] && coinPrices[coinId].gbp) {
-                    const price = coinPrices[coinId].gbp;
-                    priceElement.textContent = `£${price.toFixed(6)}`;
-                    currentPortfolioValue += initialCoinQuantities[coinId] * price;
-                } else {
-                    priceElement.textContent = 'N/A';
-                }
-            });
+    return data;
+  } catch (error) {
+    console.error('CoinGecko API error:', error);
+    throw error;
+  }
+}
 
-            const totalElement = document.getElementById(totalElementId);
-            totalElement.textContent = `£${currentPortfolioValue.toFixed(2)}`;
+serve(async (req) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...corsHeaders,
+  };
 
-            const gainElement = document.getElementById(gainElementId);
-            const gain = currentPortfolioValue - initialInvestment;
-            const percentageGain = (gain / initialInvestment) * 100;
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers });
+  }
 
-            if (gain >= 0) {
-                gainElement.innerHTML = `£${gain.toFixed(2)} (<span class="green">+${percentageGain.toFixed(2)}%</span>)`;
-            } else {
-                gainElement.innerHTML = `£${gain.toFixed(2)} (<span class="red">${percentageGain.toFixed(2)}%</span>)`;
-            }
+  try {
+    const url = new URL(req.url);
+    const source = url.searchParams.get('source') || 'cryptocompare';
+    
+    const symbolsParam = url.searchParams.get('symbols');
+    if (!symbolsParam) {
+      return new Response(
+        JSON.stringify({ error: 'Missing symbols parameter' }),
+        { status: 400, headers }
+      );
+    }
 
-            const totalGainElement = document.getElementById(totalGainElementId);
-            totalGainElement.textContent = `Total Gain £${gain.toFixed(2)}`;
-        }
+    console.log('Request params:', { source, symbols: symbolsParam });
 
-        fetchCoinPrices();
-        setInterval(fetchCoinPrices, 30000);
-    </script>
-</body>
-</html>
+    const symbols = symbolsParam.split(',');
+    let data;
+
+    try {
+      if (source === 'cryptocompare') {
+        data = await fetchCryptoComparePrices(symbols);
+      } else {
+        data = await fetchCoinGeckoPrices(symbols);
+      }
+
+      return new Response(
+        JSON.stringify(data),
+        { headers }
+      );
+    } catch (error) {
+      console.error(`API Error (${source}):`, error);
+      return new Response(
+        JSON.stringify({ 
+          error: error instanceof Error ? error.message : 'Failed to fetch prices',
+          source,
+          symbols 
+        }),
+        { status: 500, headers }
+      );
+    }
+  } catch (error) {
+    console.error('Server error:', error);
+    return new Response(
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Internal server error',
+        timestamp: new Date().toISOString()
+      }),
+      { status: 500, headers }
+    );
+  }
+});
