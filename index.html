@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Tracker</title>
+    <style>
+        body {
+            font-family: monospace; /* Monospace font for the terminal-like feel */
+            background-color: #000; /* Dark background */
+            color: #00ffff; /* Cyan text */
+            margin: 20px;
+        }
+        h1, h2 {
+            color: #00ffff;
+            text-align: center;
+        }
+        .table-container {
+            display: flex;
+            justify-content: space-around;
+        }
+        .portfolio-table {
+            border: 2px solid #00ffff;
+            padding: 20px;
+            border-radius: 10px;
+            width: 45%; /* Adjust as needed */
+        }
+        .portfolio-table h2 {
+            text-align: left;
+            margin-bottom: 10px;
+        }
+        .total-value {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .coin-price {
+            margin-bottom: 5px;
+        }
+        .gain-loss {
+            margin-top: 10px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .green {
+            color: #00ff00; /* Green for gain */
+        }
+        .red {
+            color: #ff0000; /* Red for loss */
+        }
+    </style>
+</head>
+<body>
+    <h1>Investment Tracker</h1>
+
+    <div class="table-container">
+        <div class="portfolio-table">
+            <h2>Stablecoin Portfolio</h2>
+            <div class="total-value" id="stablecoinTotal"></div>
+            <div class="coin-price" id="usdePrice">USDE Price: <span id="usdeValue"></span></div>
+            <div class="coin-price" id="raiPrice">RAI Price: <span id="raiValue"></span></div>
+            <div class="coin-price" id="fraxPrice">FRAX Price: <span id="fraxValue"></span></div>
+            <div class="coin-price" id="alusdPrice">ALUSD Price: <span id="alusdValue"></span></div>
+            <div class="coin-price" id="lusdPrice">LUSD Price: <span id="lusdValue"></span></div>
+            <div class="gain-loss" id="stablecoinGain"></div>
+        </div>
+
+        <div class="portfolio-table">
+            <h2>Heaven's Vault Portfolio</h2>
+            <div class="total-value" id="heavensVaultTotal"></div>
+            <div class="coin-price" id="ethenaPrice">ETHENA Price: <span id="ethenaValue"></span></div>
+            <div class="coin-price" id="pendlePrice">PENDLE Price: <span id="pendleValue"></span></div>
+            <div class="coin-price" id="gmxPrice">GMX Price: <span id="gmxValue"></span></div>
+            <div class="coin-price" id="litPrice">LIT Price: <span id="litValue"></span></div>
+            <div class="coin-price" id="methPrice">METH Price: <span id="methValue"></span></div>
+            <div class="gain-loss" id="heavensVaultGain"></div>
+        </div>
+    </div>
+
+    <script>
+        const stablecoinCoins = ['usde', 'rai', 'frax', 'alusd', 'lusd'];
+        const heavensVaultCoins = ['ethena', 'pendle', 'gmx', 'lit', 'meth'];
+        const initialInvestment = 5000;
+        let coinPrices = {};
+
+        async function fetchCoinPrices() {
+            try {
+                const coinIds = [...stablecoinCoins, ...heavensVaultCoins];
+                const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(',')}&vs_currencies=gbp`);
+                const data = await response.json();
+                coinPrices = data;
+                updatePortfolios();
+            } catch (error) {
+                console.error('Error fetching coin prices:', error);
+            }
+        }
+
+        function updatePortfolios() {
+            updatePortfolio('stablecoin', stablecoinCoins, 'stablecoinTotal', 'stablecoinGain');
+            updatePortfolio('heavensVault', heavensVaultCoins, 'heavensVaultTotal', 'heavensVaultGain');
+        }
+
+        function updatePortfolio(portfolioName, portfolioCoins, totalElementId, gainElementId) {
+            let totalValue = 0;
+            const initialCoinValue = initialInvestment / portfolioCoins.length;
+            let currentPortfolioValue = 0;
+
+            portfolioCoins.forEach(coinId => {
+                const priceElementId = `${coinId}Value`;
+                const priceElement = document.getElementById(priceElementId);
+
+                if (coinPrices[coinId] && coinPrices[coinId].gbp) {
+                    const price = coinPrices[coinId].gbp;
+                    priceElement.textContent = `£${price.toFixed(6)}`;
+                    currentPortfolioValue += (initialCoinValue / (coinPrices[coinId] && coinPrices[coinId].gbp ? coinPrices[coinId].gbp : 1)) * price;
+                } else {
+                    priceElement.textContent = 'N/A';
+                }
+            });
+
+            const totalElement = document.getElementById(totalElementId);
+            totalElement.textContent = `£${currentPortfolioValue.toFixed(2)}`;
+
+            const gainElement = document.getElementById(gainElementId);
+            const gain = currentPortfolioValue - initialInvestment;
+            const percentageGain = (gain / initialInvestment) * 100;
+
+            if (gain >= 0) {
+                gainElement.innerHTML = `£${gain.toFixed(2)} (<span class="green">+${percentageGain.toFixed(2)}%</span>)`;
+            } else {
+                gainElement.innerHTML = `£${gain.toFixed(2)} (<span class="red">${percentageGain.toFixed(2)}%</span>)`;
+            }
+        }
+
+        fetchCoinPrices();
+        setInterval(fetchCoinPrices, 30000); // Update every 30 seconds
+    </script>
+</body>
+</html>
