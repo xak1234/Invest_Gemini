@@ -6,9 +6,9 @@
     <title>Investment Tracker</title>
     <style>
         body {
-            font-family: monospace; /* Monospace font for the terminal-like feel */
-            background-color: #000; /* Dark background */
-            color: #00ffff; /* Cyan text */
+            font-family: monospace;
+            background-color: #000;
+            color: #00ffff;
             margin: 20px;
         }
         h1, h2 {
@@ -23,7 +23,7 @@
             border: 2px solid #00ffff;
             padding: 20px;
             border-radius: 10px;
-            width: 45%; /* Adjust as needed */
+            width: 45%;
         }
         .portfolio-table h2 {
             text-align: left;
@@ -43,10 +43,10 @@
             text-align: center;
         }
         .green {
-            color: #00ff00; /* Green for gain */
+            color: #00ff00;
         }
         .red {
-            color: #ff0000; /* Red for loss */
+            color: #ff0000;
         }
     </style>
 </head>
@@ -82,6 +82,7 @@
         const heavensVaultCoins = ['ethena', 'pendle', 'gmx', 'lit', 'meth'];
         const initialInvestment = 5000;
         let coinPrices = {};
+        let initialCoinQuantities = {};
 
         async function fetchCoinPrices() {
             try {
@@ -89,10 +90,25 @@
                 const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(',')}&vs_currencies=gbp`);
                 const data = await response.json();
                 coinPrices = data;
+
+                if (Object.keys(initialCoinQuantities).length === 0) {
+                    calculateInitialQuantities();
+                }
+
                 updatePortfolios();
             } catch (error) {
                 console.error('Error fetching coin prices:', error);
             }
+        }
+
+        function calculateInitialQuantities() {
+            [stablecoinCoins, heavensVaultCoins].forEach(coins => {
+                coins.forEach(coinId => {
+                    if (coinPrices[coinId] && coinPrices[coinId].gbp) {
+                        initialCoinQuantities[coinId] = initialInvestment / coins.length / coinPrices[coinId].gbp;
+                    }
+                });
+            });
         }
 
         function updatePortfolios() {
@@ -101,8 +117,6 @@
         }
 
         function updatePortfolio(portfolioName, portfolioCoins, totalElementId, gainElementId) {
-            let totalValue = 0;
-            const initialCoinValue = initialInvestment / portfolioCoins.length;
             let currentPortfolioValue = 0;
 
             portfolioCoins.forEach(coinId => {
@@ -112,7 +126,7 @@
                 if (coinPrices[coinId] && coinPrices[coinId].gbp) {
                     const price = coinPrices[coinId].gbp;
                     priceElement.textContent = `£${price.toFixed(6)}`;
-                    currentPortfolioValue += (initialCoinValue / (coinPrices[coinId] && coinPrices[coinId].gbp ? coinPrices[coinId].gbp : 1)) * price;
+                    currentPortfolioValue += initialCoinQuantities[coinId] * price;
                 } else {
                     priceElement.textContent = 'N/A';
                 }
@@ -133,7 +147,7 @@
         }
 
         fetchCoinPrices();
-        setInterval(fetchCoinPrices, 30000); // Update every 30 seconds
+        setInterval(fetchCoinPrices, 30000);
     </script>
 </body>
 </html>
