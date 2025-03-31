@@ -48,6 +48,10 @@
         .red {
             color: #ff0000;
         }
+        .total-gain{
+            text-align: center;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -63,6 +67,7 @@
             <div class="coin-price" id="alusdPrice">ALUSD Price: <span id="alusdValue"></span></div>
             <div class="coin-price" id="lusdPrice">LUSD Price: <span id="lusdValue"></span></div>
             <div class="gain-loss" id="stablecoinGain"></div>
+            <div class="total-gain" id="stablecoinTotalGain"></div>
         </div>
 
         <div class="portfolio-table">
@@ -74,6 +79,7 @@
             <div class="coin-price" id="litPrice">LIT Price: <span id="litValue"></span></div>
             <div class="coin-price" id="methPrice">METH Price: <span id="methValue"></span></div>
             <div class="gain-loss" id="heavensVaultGain"></div>
+            <div class="total-gain" id="heavensVaultTotalGain"></div>
         </div>
     </div>
 
@@ -112,11 +118,11 @@
         }
 
         function updatePortfolios() {
-            updatePortfolio('stablecoin', stablecoinCoins, 'stablecoinTotal', 'stablecoinGain');
-            updatePortfolio('heavensVault', heavensVaultCoins, 'heavensVaultTotal', 'heavensVaultGain');
+            updatePortfolio('stablecoin', stablecoinCoins, 'stablecoinTotal', 'stablecoinGain', 'stablecoinTotalGain');
+            updatePortfolio('heavensVault', heavensVaultCoins, 'heavensVaultTotal', 'heavensVaultGain', 'heavensVaultTotalGain');
         }
 
-        function updatePortfolio(portfolioName, portfolioCoins, totalElementId, gainElementId) {
+        function updatePortfolio(portfolioName, portfolioCoins, totalElementId, gainElementId, totalGainElementId) {
             let currentPortfolioValue = 0;
 
             portfolioCoins.forEach(coinId => {
@@ -144,6 +150,9 @@
             } else {
                 gainElement.innerHTML = `£${gain.toFixed(2)} (<span class="red">${percentageGain.toFixed(2)}%</span>)`;
             }
+
+            const totalGainElement = document.getElementById(totalGainElementId);
+            totalGainElement.textContent = `Total Gain £${gain.toFixed(2)}`;
         }
 
         fetchCoinPrices();
